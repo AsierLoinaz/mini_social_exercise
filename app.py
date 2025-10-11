@@ -939,17 +939,33 @@ def moderate_content(content):
     TIER3_PATTERN = r'\b(' + '|'.join(TIER3_WORDS) + r')\b'
     TIER2_PATTERN = r'\b(' + '|'.join(TIER2_PHRASES) + r')\b'
     TIER1_PATTERN = r'\b(' + '|'.join(TIER1_WORDS) + r')\b'
-    # URL_PATTERN = r' /(https:\/\/www\.|http:\/\/www\.|https:\/\/|http:\/\/)?[a-zA-Z]{2,}(\.[a-zA-Z]{2,})(\.[a-zA-Z]{2,})?\/[a-zA-Z0-9]{2,}|((https:\/\/www\.|http:\/\/www\.|https:\/\/|http:\/\/)?[a-zA-Z]{2,}(\.[a-zA-Z]{2,})(\.[a-zA-Z]{2,})?)|(https:\/\/www\.|http:\/\/www\.|https:\/\/|http:\/\/)?[a-zA-Z0-9]{2,}\.[a-zA-Z0-9]{2,}\.[a-zA-Z0-9]{2,}(\.[a-zA-Z0-9]{2,})?/g;'
     URL_PATTERN = r'https?://[^\s]+|www\.[^\s]+'
     ALPHA_PATTERN = r'[A-Za-z]'
     CAPITAL_PATTERN = r'[A-Z]'
-
+    
+    # For new rule
+    BYPASS = {'1': 'i', 
+              '4': 'a',
+              '3': 'e',
+              '0': 'o'}
+    
     # Run the regex to find all the matching words in T1
-    matches = re.findall(TIER1_PATTERN, content, flags=re.IGNORECASE)
+    matches = re.findall(TIER1_PATTERN, content, flags=re.IGNORECASE)    
+    
     if len(matches) > 0: # Tier 1 violation. Return string and 5
         return "[content removed due to severe violation]", 5.0
     
-    # No T1 matches, check t2.
+    # No T1 matches
+    #* New rule: not to bypass  the T1, change numbers for letters.
+
+    bypass_content = ''.join(BYPASS.get(c, c) for c in content)
+    matches = re.findall(TIER1_PATTERN, bypass_content, flags=re.IGNORECASE) 
+
+    # Matches found after checking bypass
+    if len(matches) > 0: # Tier 1 violation after checking bypass. Return string and 5
+        return "[content removed due to severe violation]", 5.0
+
+    # No matches for T1 after checking the bypass, check t2.
     matches = re.findall(TIER2_PATTERN, content, flags=re.IGNORECASE)
     if len(matches) > 0: # Tier 2 violation. Return string and 5
         return "[content removed due to spam/scam policy]", 5.0
