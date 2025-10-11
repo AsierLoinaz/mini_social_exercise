@@ -913,14 +913,25 @@ def user_risk_analysis(user_id):
 
     """
     Step 1 (Profile Score): Calculate the Content Score of the user's profile text. This is the profile_score.
+
     Step 2 (Post Score): Calculate the Content Score for all of the user's posts and find the average. This is the average_post_score. If the user has no posts, this value is 0.
+    
     Step 3 (Comment Score): Calculate the Content Score for all of the user's comments and find the average. This is the average_comment_score. If the user has no comments, this value is 0.
+   
     Step 4 (Combine Scores): A preliminary content_risk_score is calculated using the following formula:
     content_risk_score = (profile_score * 1) + (average_post_score * 3) + (average_comment_score * 1)
+    
     Step 5 (Apply Age Multiplier): The final user_risk_score is determined by applying a multiplier to the content_risk_score based on account age:
     If account age < 7 days: user_risk_score = content_risk_score * 1.5
     If account age < 30 days: user_risk_score = content_risk_score * 1.2
     Otherwise: user_risk_score = content_risk_score
+    
+    ADDITIONAL RULE: risk augments as the user has more followers  
+    0-10 followers: user_risk_score = user_risk_score
+    11-25 followers: user_risk_score = user_risk_score * 1.1
+    26-40 followers: user_risk_score = user_risk_score * 1.2
+    More than 40 followers: user_risk_score = user_risk_score * 1.5
+
     Step 6 (Final Capping): The final calculated user_risk_score is capped at a maximum value of 5.0."""
 
     profile_score = 0
@@ -973,6 +984,25 @@ def user_risk_analysis(user_id):
     else:
         user_risk_score = content_risk_score
 
+
+    # Extra rule: take into account followers
+    follower_count = query_db('''
+        SELECT COUNT(u.username)
+        FROM follows f
+        JOIN users u ON f.follower_id = u.id
+        WHERE f.followed_id = ?
+    ''', (user['id'],))[0][0]
+
+    # If lower than 10, no change. Other cases, affect the risk
+    if 10 <= follower_count <= 24:
+        user_risk_score *= 1.1
+    elif 25 <= follower_count <= 39:
+        user_risk_score *= 1.2
+    elif follower_count >= 40:
+        user_risk_score *= 1.5
+
+
+    # Final step, the score is max 5
     if user_risk_score > 5.0:
         user_risk_score = 5.0
 
