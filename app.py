@@ -7,6 +7,8 @@ import sqlite3
 import hashlib
 import re
 from datetime import datetime
+import pandas as pd
+import numpy as np
 
 app = Flask(__name__)
 app.secret_key = '123456789' 
@@ -908,10 +910,73 @@ def user_risk_analysis(user_id):
             password: admin
         Then, navigate to the /admin endpoint. (http://localhost:8080/admin)
     """
-    
-    score = 0
 
-    return score;
+    """
+    Step 1 (Profile Score): Calculate the Content Score of the user's profile text. This is the profile_score.
+    Step 2 (Post Score): Calculate the Content Score for all of the user's posts and find the average. This is the average_post_score. If the user has no posts, this value is 0.
+    Step 3 (Comment Score): Calculate the Content Score for all of the user's comments and find the average. This is the average_comment_score. If the user has no comments, this value is 0.
+    Step 4 (Combine Scores): A preliminary content_risk_score is calculated using the following formula:
+    content_risk_score = (profile_score * 1) + (average_post_score * 3) + (average_comment_score * 1)
+    Step 5 (Apply Age Multiplier): The final user_risk_score is determined by applying a multiplier to the content_risk_score based on account age:
+    If account age < 7 days: user_risk_score = content_risk_score * 1.5
+    If account age < 30 days: user_risk_score = content_risk_score * 1.2
+    Otherwise: user_risk_score = content_risk_score
+    Step 6 (Final Capping): The final calculated user_risk_score is capped at a maximum value of 5.0."""
+
+    profile_score = 0
+
+    post_score = 0
+    avg_post_score = 0
+
+    comment_score = 0
+    avg_comment_score = 0
+
+    user_risk_score = 0
+
+    user_raw = query_db('SELECT * FROM users WHERE id = ?', (user_id,), one=True)
+    if not user_raw:
+        abort(404)
+
+    user = dict(user_raw)
+    if user['profile'] is not None:
+        profile_score = moderate_content(user['profile'])[1]
+
+    posts_raw = query_db('SELECT id, content, user_id, created_at FROM posts WHERE user_id = ? ORDER BY created_at DESC', (user['id'],))
+    if len(posts_raw) > 0:
+        posts = []
+        for post_raw in posts_raw:
+            post = dict(post_raw)
+            post_score += moderate_content(post['content'])[1]
+            posts.append(post)
+    
+        avg_post_score = post_score / len(posts)
+
+    comments_raw = query_db('SELECT id, content, user_id, post_id, created_at FROM comments WHERE user_id = ? ORDER BY created_at DESC LIMIT 100', (user['id'],))
+    if len(comments_raw) > 0:
+        comments = []
+        for comment_raw in comments_raw:
+            comment = dict(comment_raw)
+            comment_score  += moderate_content(comment['content'])[1]
+            comments.append(comment)
+        avg_comment_score = comment_score / len(comments)
+
+    content_risk_score = (profile_score * 1) + (avg_post_score * 3) + (avg_comment_score * 1)
+
+    account_created = pd.to_datetime(user['created_at'])
+    account_age = datetime.now() - account_created
+    account_days = account_age.days
+
+    if account_days < 7:
+        user_risk_score = content_risk_score * 1.5
+    elif account_days < 30: 
+        user_risk_score = content_risk_score * 1.2
+    else:
+        user_risk_score = content_risk_score
+
+    if user_risk_score > 5.0:
+        user_risk_score = 5.0
+
+    return user_risk_score;
 
     
 # Task 3.3
