@@ -935,6 +935,51 @@ def moderate_content(content):
     moderated_content = content
     score = 0
     
+    # Search for all words in each possible tier
+    TIER3_PATTERN = r'\b(' + '|'.join(TIER3_WORDS) + r')\b'
+    TIER2_PATTERN = r'\b(' + '|'.join(TIER2_PHRASES) + r')\b'
+    TIER1_PATTERN = r'\b(' + '|'.join(TIER1_WORDS) + r')\b'
+    # URL_PATTERN = r' /(https:\/\/www\.|http:\/\/www\.|https:\/\/|http:\/\/)?[a-zA-Z]{2,}(\.[a-zA-Z]{2,})(\.[a-zA-Z]{2,})?\/[a-zA-Z0-9]{2,}|((https:\/\/www\.|http:\/\/www\.|https:\/\/|http:\/\/)?[a-zA-Z]{2,}(\.[a-zA-Z]{2,})(\.[a-zA-Z]{2,})?)|(https:\/\/www\.|http:\/\/www\.|https:\/\/|http:\/\/)?[a-zA-Z0-9]{2,}\.[a-zA-Z0-9]{2,}\.[a-zA-Z0-9]{2,}(\.[a-zA-Z0-9]{2,})?/g;'
+    URL_PATTERN = r'https?://[^\s]+|www\.[^\s]+'
+    ALPHA_PATTERN = r'[A-Za-z]'
+    CAPITAL_PATTERN = r'[A-Z]'
+
+    # Run the regex to find all the matching words in T1
+    matches = re.findall(TIER1_PATTERN, content, flags=re.IGNORECASE)
+    if len(matches) > 0: # Tier 1 violation. Return string and 5
+        return "[content removed due to severe violation]", 5.0
+    
+    # No T1 matches, check t2.
+    matches = re.findall(TIER2_PATTERN, content, flags=re.IGNORECASE)
+    if len(matches) > 0: # Tier 2 violation. Return string and 5
+        return "[content removed due to spam/scam policy]", 5.0
+
+    # No T2 matches
+    # Check T3, URL and Excesive capitalization
+    matches = re.findall(TIER3_PATTERN, content, flags=re.IGNORECASE)
+    # Rule 1.2.1: replace words with * and + 2 for each match
+    score = len(matches) * 2
+    # Using the same regex, we replace all words with *
+    moderated_content = re.sub(TIER3_PATTERN, lambda m: '*' * len(m.group(0)), content, flags=re.IGNORECASE)
+
+    """
+    It is important to check moderated content instead of content,
+    As a t3-moderated content could still have urls or  excesive capitalization
+    """    
+    # Rule 1.2.2: Replace urls with [link removed] and +2 for each match. 
+    matches = re.findall(URL_PATTERN, moderated_content, flags=re.IGNORECASE)
+    score += len(matches) * 2
+    moderated_content = re.sub(URL_PATTERN, "[link removed]", moderated_content)
+
+    # Rule 1.2.3:  >15 alphabetic chars and >70%  uppercase, score + 0.5 and no modification
+    
+    alpha_chars = re.findall(ALPHA_PATTERN, moderated_content)
+    capital_chars = re.findall(CAPITAL_PATTERN, moderated_content)
+
+    # Check conditions
+    if len(alpha_chars) > 15 and len(capital_chars) / len(alpha_chars) > 0.7:
+        score += 0.5
+
     return moderated_content, score
 
 
