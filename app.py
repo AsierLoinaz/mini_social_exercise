@@ -9,6 +9,12 @@ import re
 from datetime import datetime
 import pandas as pd
 import numpy as np
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+
+nltk.download('stopwords')
+nltk.download('punkt')
 
 app = Flask(__name__)
 app.secret_key = '123456789' 
@@ -892,9 +898,94 @@ def recommend(user_id, filter_following):
     - https://www.researchgate.net/publication/227268858_Recommender_Systems_Handbook
     """
 
-    recommended_posts = {} 
+  #  Get the content of all posts the user has positively reacted to.
+  #  Angry and sad are not positive
+    liked_posts_content = query_db('''
+        SELECT p.content FROM posts p
+        JOIN reactions r ON p.id = r.post_id
+        WHERE r.user_id = ? 
+        AND r.reaction_type NOT IN ('angry', 'sad')
+    ''', (user_id,))
 
-    return recommended_posts;
+
+    """
+    If the user hasn't liked any posts but following filter is On, 
+    show 5 newest posts of people the user follows
+
+    If following filter is Off, show newest 5 posts in general
+    """
+
+    #* If the user has not liked any posts
+    if not liked_posts_content:
+
+        if not filter_following: # No liked posts and no following, newest 5
+            canditates = query_db('''
+                SELECT p.id, p.content, p.created_at, u.username, u.id as user_id
+                FROM posts p JOIN users u ON p.user_id = u.id
+                WHERE p.user_id != ? ORDER BY p.created_at DESC
+            ''', (user_id,))
+        
+        # No liked but following, 5 newest from following. May be empty, it is OK
+        else:
+            canditates = query_db('''
+                    SELECT p.id, p.content, p.created_at, u.username, 
+                    u.id as user_id FROM posts p JOIN users u ON p.user_id = u.id
+                    WHERE p.user_id IN (SELECT followed_id FROM follows WHERE follower_id = ?)
+                        ''', (user_id,))
+            
+
+        for post in canditates:
+            # Check for risk of the candidate posts.
+            _, risk = moderate_content(post['content'])
+
+            if risk <= 3.0:
+                recommended_posts.append(post)
+
+
+    #* If the user has liked posts
+    #  Find the most common words from the posts they liked
+    word_counts = collections.Counter()
+
+    # English stopwords from nltk
+    stop_words = set(stopwords.words('english'))
+    
+    for post in liked_posts_content:
+        # Use regex to find all words in the post content
+        words = re.findall(r'\b\w+\b', post['content'].lower())
+        for word in words:
+            if word not in stop_words and len(word) > 2:
+                word_counts[word] += 1
+    
+    top_keywords = [word for word, _ in word_counts.most_common(10)]
+
+    query = "SELECT p.id, p.content, p.created_at, u.username, u.id as user_id FROM posts p JOIN users u ON p.user_id = u.id"
+    params = []
+    
+    # If filtering by following, add a WHERE clause to only include followed users.
+    if filter_following:
+        query += " WHERE p.user_id IN (SELECT followed_id FROM follows WHERE follower_id = ?)"
+        params.append(user_id)
+        
+    all_other_posts = query_db(query, tuple(params))
+    
+    recommended_posts = []
+    # We only consider positive reactions
+    liked_post_ids = {post['id'] for post in query_db('''SELECT post_id as id FROM reactions WHERE user_id = ?
+     AND reactions.reaction_type NOT IN ('angry', 'sad')''', (user_id,))}
+
+    for post in all_other_posts:
+        if post['id'] in liked_post_ids or post['user_id'] == user_id:
+            continue
+        
+        if any(keyword in post['content'].lower() for keyword in top_keywords):
+            # Check for risk of the post
+            _, risk = moderate_content(post['content'])
+            if risk <= 3.0:
+                recommended_posts.append(post)
+
+    recommended_posts.sort(key=lambda p: p['created_at'], reverse=True)
+
+    return recommended_posts[:5]
 
 # Task 3.2
 def user_risk_analysis(user_id):
