@@ -941,35 +941,69 @@ def admin_dashboard():
      # --- Reports Tab Data ---
     reports_offset = (reports_page - 1) * PAGE_SIZE
     total_reports_count = query_db('SELECT COUNT(*) as count FROM reports', one=True)['count']
-    total_reports_pages = (total_reports_count + PAGE_SIZE - 1) // PAGE_SIZE
+    total_report_pages = (total_reports_count + PAGE_SIZE - 1) // PAGE_SIZE
 
-    comments_raw = query_db(f'''
-        SELECT c.id, c.content, c.created_at, u.username, u.created_at as user_created_at
-        FROM comments c JOIN users u ON c.user_id = u.id
-        ORDER BY c.id DESC -- Order by ID for consistent pagination before risk sort
-        LIMIT ? OFFSET ?
-    ''', (PAGE_SIZE, comments_offset))
-    comments = []
-    for comment in comments_raw:
-        comment_dict = dict(comment)
-        _, score = moderate_content(comment_dict['content'])
-        author_created_dt = comment_dict['user_created_at']
-        author_age_days = (datetime.utcnow() - author_created_dt).days
-        if author_age_days < 7:
-            score *= 1.5
-        risk_label, risk_sort_key = get_risk_profile(score)
-        comment_dict['risk_label'] = risk_label
-        comment_dict['risk_sort_key'] = risk_sort_key
-        comment_dict['risk_score'] = round(score, 2)
-        comments.append(comment_dict)
+    reports_raw = query_db('''
+    SELECT report_id, content_id, content_type, reporter_id, reason, created_at
+    FROM reports
+    ORDER BY created_at DESC
+    LIMIT ? OFFSET ?
+''', (PAGE_SIZE, reports_offset))
 
-    comments.sort(key=lambda x: x['risk_score'], reverse=True) # Sort after fetching and scoring
+    reports = []
+
+    for report in reports_raw:
+        report_dict = dict(report)
+        content_type = report_dict['content_type']
+        content_id = report_dict['content_id']
+
+
+        # Fetch content and author info based on content_type
+        if content_type == 'comment':
+            content_info = query_db('''
+                SELECT c.content, u.username as author, u.created_at as user_created_at
+                FROM comments c
+                JOIN users u ON c.user_id = u.id
+                WHERE c.id = ?
+            ''', (content_id,), one=True)
+        elif content_type == 'post':
+            content_info = query_db('''
+                SELECT p.content, u.username as author, u.created_at as user_created_at
+                FROM posts p
+                JOIN users u ON p.user_id = u.id
+                WHERE p.id = ?
+            ''', (content_id,), one=True)
+        elif content_type == 'profile':
+            content_info = query_db('''
+                SELECT u.profile as content, u.username as author, u.created_at as user_created_at
+                FROM users u
+                WHERE u.id = ?
+            ''', (content_id,), one=True)
+
+        else:
+            continue  # skip unknown content_type
+
+        if not content_info:
+            continue  # skip deleted content
+
+        report_dict.update({
+            'id': content_id,
+            'author': content_info['author'],
+            'type': content_type,
+            'content': content_info['content'],
+            'reason:': report_dict['reason'],
+            'author_created_at': content_info['user_created_at'],
+        })
+
+        reports.append(report_dict)
+
 
 
     return render_template('admin.html.j2', 
                            users=users, 
                            posts=posts, 
                            comments=comments,
+                           reports=reports,
                            
                            # Pagination for Users
                            users_page=users_page,
@@ -988,6 +1022,12 @@ def admin_dashboard():
                            total_comments_pages=total_comments_pages,
                            comments_has_next=(comments_page < total_comments_pages),
                            comments_has_prev=(comments_page > 1),
+
+                            # Pagination for Reports
+                           reports_page=reports_page,
+                           total_report_pages=total_report_pages,
+                           reports_has_next=(reports_page < total_report_pages),
+                           reports_has_prev=(reports_page > 1),
 
                            current_tab=current_tab,
                            PAGE_SIZE=PAGE_SIZE)
@@ -1036,6 +1076,36 @@ def admin_delete_comment(comment_id):
     db.execute('DELETE FROM comments WHERE id = ?', (comment_id,))
     db.commit()
     flash(f'Comment {comment_id} has been deleted.', 'success')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/delete/report/<int:report_id>', methods=['POST'])
+def admin_delete_reported_content(report_id):
+    if session.get('username') != 'admin':
+        flash("You do not have permission to perform this action.", "danger")
+        return redirect(url_for('feed'))
+
+    db = get_db()
+    report = query_db('SELECT content_type, content_id FROM reports WHERE report_id = ?', (report_id,), one=True)
+    if not report:
+        flash(f'Report {report_id} not found.', 'danger')
+        return redirect(url_for('admin_dashboard'))
+    
+    content_type = report['content_type']
+    content_id = report['content_id']
+    if content_type == 'user':
+        db.execute('DELETE FROM users WHERE id = ?', (content_id,))
+        db.commit()
+        flash(f'Comment {content_id} has been deleted as suggested by report {report_id}.', 'success')
+    elif content_type == 'post':
+        db.execute('DELETE FROM posts WHERE id = ?', (content_id,))
+        db.commit()
+        flash(f'Comment {content_id} has been deleted as suggested by report {report_id}.', 'success')
+    elif content_type == 'comment':
+        db.execute('DELETE FROM comments WHERE id = ?', (content_id,))
+        db.commit()
+        flash(f'Comment {content_id} has been deleted as suggested by report {report_id}.', 'success')
+
+    
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/rules')
