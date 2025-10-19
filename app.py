@@ -688,11 +688,12 @@ def unfollow_user(user_id):
 @app.route('/u/<int:user_id>/report', methods=['POST'])
 def report_profile(user_id):
     """Handles the logic for the current user to report another user's profile."""
-    reported_id = session.get('user_id')
+    reporter_id = session.get('user_id')
+    reported_id = user_id
     reason = request.form.get('reason', '').strip()
 
     # Security: Ensure user is logged in
-    if not reported_id:
+    if not reporter_id:
         flash("You must be logged in to report users.", "danger")
         return redirect(url_for('login'))
     
@@ -703,7 +704,7 @@ def report_profile(user_id):
         return redirect(request.referrer or url_for('feed'))
     
     # Security: Prevent users from reporting themselves
-    if reported_id == user_id:
+    if reported_id == reporter_id:
         flash("You cannot report yourself.", "warning")
         return redirect(request.referrer or url_for('feed'))
     
@@ -711,7 +712,7 @@ def report_profile(user_id):
     exists_report = query_db('''SELECT 1 FROM reports 
                               WHERE content_id = ? AND reporter_id = ?
                               AND created_at >= datetime('now', '-72 hours')''',
-                              (reported_id, user_id), one=True)
+                              (reported_id, reporter_id), one=True)
     if exists_report:
         flash("You have already reported this user recently. Please wait before reporting again.", "info")
         return redirect(request.referrer or url_for('feed'))
@@ -723,7 +724,7 @@ def report_profile(user_id):
         # Insert the report relationship. The PRIMARY KEY constraint will prevent duplicates if you've set one.
         db.execute('''INSERT INTO reports (content_id, content_type, reporter_id, reason) 
                      VALUES (?, 'profile', ?, ?)''',
-               (reported_id, user_id, reason))
+               (reported_id, reporter_id, reason))
         db.commit()
         flash(f"Your report was successfully submited!.", "success")
     except sqlite3.IntegrityError:
