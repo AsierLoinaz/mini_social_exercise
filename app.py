@@ -727,11 +727,57 @@ def report_profile(user_id):
         db.commit()
         flash(f"Your report was successfully submited!.", "success")
     except sqlite3.IntegrityError:
-        flash("You are already following this user.", "info")
+        flash("An error ocurred while submitting your report.", "info")
 
 
     # Redirect back to the page the user came from
     return redirect(request.referrer or url_for('feed'))
+@app.route('/posts/<int:post_id>/report', methods=['POST'])
+def report_post(post_id):
+    """Handles the logic for the current user to report another user's post."""
+    user_id = session.get('user_id')
+    if not user_id:
+        flash("You must be logged in to report posts.", "danger")
+        return redirect(url_for('login'))
+
+    reason = request.form.get('reason', '').strip()
+    if not reason:
+        flash("You must provide a reason for reporting.", "warning")
+        return redirect(request.referrer or url_for('feed'))
+
+    # Ensure reported post exists
+    post_to_report = query_db('SELECT id, user_id FROM posts WHERE id = ?', (post_id,), one=True)
+    if not post_to_report:
+        flash("The post you are trying to report does not exist.", "danger")
+        return redirect(request.referrer or url_for('feed'))
+
+    # Prevent users from reporting their own posts
+    if post_to_report['user_id'] == user_id:
+        flash("You cannot report your own post.", "warning")
+        return redirect(request.referrer or url_for('feed'))
+
+    # Prevent duplicate reports within 72 hours
+    exists_report = query_db('''SELECT 1 FROM reports
+                                WHERE content_id = ? AND reporter_id = ? AND content_type = 'post'
+                                AND created_at >= datetime('now', '-72 hours')''',
+                             (post_id, user_id), one=True)
+    if exists_report:
+        flash("You have already reported this post recently. Please wait before reporting again.", "info")
+        return redirect(request.referrer or url_for('feed'))
+
+    db = get_db()
+    try:
+        db.execute('''INSERT INTO reports (content_id, content_type, reporter_id, reason)
+                      VALUES (?, 'post', ?, ?)''',
+                   (post_id, user_id, reason))
+        db.commit()
+        flash("Your report was successfully submitted!", "success")
+    except sqlite3.IntegrityError:
+        flash("An error occurred while submitting your report.", "info")
+
+    return redirect(request.referrer or url_for('feed'))
+
+
 
 @app.route('/admin')
 def admin_dashboard():
