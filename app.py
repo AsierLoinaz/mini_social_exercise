@@ -732,6 +732,8 @@ def report_profile(user_id):
 
     # Redirect back to the page the user came from
     return redirect(request.referrer or url_for('feed'))
+
+
 @app.route('/posts/<int:post_id>/report', methods=['POST'])
 def report_post(post_id):
     """Handles the logic for the current user to report another user's post."""
@@ -776,6 +778,54 @@ def report_post(post_id):
         flash("An error occurred while submitting your report.", "info")
 
     return redirect(request.referrer or url_for('feed'))
+
+
+
+@app.route('/comments/<int:comment_id>/report', methods=['POST'])
+def report_comment(comment_id):
+    """Handles the logic for the current user to report another user's comment."""
+    user_id = session.get('user_id')
+    if not user_id:
+        flash("You must be logged in to report comments.", "danger")
+        return redirect(url_for('login'))
+
+    reason = request.form.get('reason', '').strip()
+    if not reason:
+        flash("You must provide a reason for reporting.", "warning")
+        return redirect(request.referrer or url_for('feed'))
+
+    # Ensure reported comment exists
+    comment_to_report = query_db('SELECT id, user_id FROM comments WHERE id = ?', (comment_id,), one=True)
+    if not comment_to_report:
+        flash("The comment you are trying to report does not exist.", "danger")
+        return redirect(request.referrer or url_for('feed'))
+
+    # Prevent users from reporting their own comments
+    if comment_to_report['user_id'] == user_id:
+        flash("You cannot report your own comment.", "warning")
+        return redirect(request.referrer or url_for('feed'))
+
+    # Prevent duplicate reports within 72 hours
+    exists_report = query_db('''SELECT 1 FROM reports
+                                WHERE content_id = ? AND reporter_id = ? AND content_type = 'comment'
+                                AND created_at >= datetime('now', '-72 hours')''',
+                             (comment_id, user_id), one=True)
+    if exists_report:
+        flash("You have already reported this comment recently. Please wait before reporting again.", "info")
+        return redirect(request.referrer or url_for('feed'))
+
+    db = get_db()
+    try:
+        db.execute('''INSERT INTO reports (content_id, content_type, reporter_id, reason)
+                      VALUES (?, 'comment', ?, ?)''',
+                   (comment_id, user_id, reason))
+        db.commit()
+        flash("Your report was successfully submitted!", "success")
+    except sqlite3.IntegrityError:
+        flash("An error occurred while submitting your report.", "info")
+
+    return redirect(request.referrer or url_for('feed'))
+
 
 
 
