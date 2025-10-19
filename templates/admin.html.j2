@@ -33,6 +33,15 @@
             Comments
         </button>
     </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link {% if current_tab == 'reports' %}active{% endif %}" 
+                id="reports-tab" data-bs-toggle="tab" data-bs-target="#reports" 
+                type="button" role="tab" aria-controls="reports" 
+                aria-selected="{% if current_tab == 'reports' %}true{% else %}false{% endif %}"
+                onclick="window.location.href = '{{ url_for('admin_dashboard', tab='reports', reports_page=reports_page) }}'">
+            Reports
+        </button>
+    </li>
 </ul>
 
 <!-- Tab Content -->

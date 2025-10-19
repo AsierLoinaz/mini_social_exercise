@@ -804,10 +804,12 @@ def admin_dashboard():
         users_page = int(request.args.get('users_page', 1))
         posts_page = int(request.args.get('posts_page', 1))
         comments_page = int(request.args.get('comments_page', 1))
+        reports_page = int(request.args.get('reports_page', 1))
     except ValueError:
         users_page = 1
         posts_page = 1
         comments_page = 1
+        reports_page = 1
     
     current_tab = request.args.get('tab', 'users') # Default to 'users' tab
 
@@ -863,6 +865,33 @@ def admin_dashboard():
     comments_offset = (comments_page - 1) * PAGE_SIZE
     total_comments_count = query_db('SELECT COUNT(*) as count FROM comments', one=True)['count']
     total_comments_pages = (total_comments_count + PAGE_SIZE - 1) // PAGE_SIZE
+
+    comments_raw = query_db(f'''
+        SELECT c.id, c.content, c.created_at, u.username, u.created_at as user_created_at
+        FROM comments c JOIN users u ON c.user_id = u.id
+        ORDER BY c.id DESC -- Order by ID for consistent pagination before risk sort
+        LIMIT ? OFFSET ?
+    ''', (PAGE_SIZE, comments_offset))
+    comments = []
+    for comment in comments_raw:
+        comment_dict = dict(comment)
+        _, score = moderate_content(comment_dict['content'])
+        author_created_dt = comment_dict['user_created_at']
+        author_age_days = (datetime.utcnow() - author_created_dt).days
+        if author_age_days < 7:
+            score *= 1.5
+        risk_label, risk_sort_key = get_risk_profile(score)
+        comment_dict['risk_label'] = risk_label
+        comment_dict['risk_sort_key'] = risk_sort_key
+        comment_dict['risk_score'] = round(score, 2)
+        comments.append(comment_dict)
+
+    comments.sort(key=lambda x: x['risk_score'], reverse=True) # Sort after fetching and scoring
+
+     # --- Reports Tab Data ---
+    reports_offset = (reports_page - 1) * PAGE_SIZE
+    total_reports_count = query_db('SELECT COUNT(*) as count FROM reports', one=True)['count']
+    total_reports_pages = (total_reports_count + PAGE_SIZE - 1) // PAGE_SIZE
 
     comments_raw = query_db(f'''
         SELECT c.id, c.content, c.created_at, u.username, u.created_at as user_created_at
