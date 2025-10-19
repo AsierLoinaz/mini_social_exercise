@@ -12,6 +12,11 @@ import numpy as np
 import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
+from nltk.sentiment import vader
+from nltk.stem import WordNetLemmatizer
+from gensim.corpora import Dictionary
+from gensim.models.ldamodel import LdaModel
+from gensim.models.coherencemodel import CoherenceModel
 
 nltk.download('stopwords')
 nltk.download('punkt')
@@ -680,6 +685,54 @@ def unfollow_user(user_id):
     # Redirect back to the page the user came from
     return redirect(request.referrer or url_for('feed'))
 
+@app.route('/u/<int:user_id>/report', methods=['POST'])
+def report_profile(user_id):
+    """Handles the logic for the current user to report another user's profile."""
+    reported_id = session.get('user_id')
+    reason = request.form.get('reason', '').strip()
+
+    # Security: Ensure user is logged in
+    if not reported_id:
+        flash("You must be logged in to report users.", "danger")
+        return redirect(url_for('login'))
+    
+    # Security: Ensure reported user exists
+    user_to_report = query_db('SELECT id FROM users WHERE id = ?', (reported_id,), one=True)
+    if not user_to_report:
+        flash("The user you are trying to report does not exist.", "danger")
+        return redirect(request.referrer or url_for('feed'))
+    
+    # Security: Prevent users from reporting themselves
+    if reported_id == user_id:
+        flash("You cannot report yourself.", "warning")
+        return redirect(request.referrer or url_for('feed'))
+    
+    # Security: Prevent users from reporting the same user multiple times in less than 72 hours
+    exists_report = query_db('''SELECT 1 FROM reports 
+                              WHERE content_id = ? AND reporter_id = ?
+                              AND created_at >= datetime('now', '-72 hours')''',
+                              (reported_id, user_id), one=True)
+    if exists_report:
+        flash("You have already reported this user recently. Please wait before reporting again.", "info")
+        return redirect(request.referrer or url_for('feed'))
+    
+
+    db = get_db()
+
+    try:
+        # Insert the report relationship. The PRIMARY KEY constraint will prevent duplicates if you've set one.
+        db.execute('''INSERT INTO reports (content_id, content_type, reporter_id, reason) 
+                     VALUES (?, 'profile', ?, ?)''',
+               (reported_id, user_id, reason))
+        db.commit()
+        flash(f"Your report was successfully submited!.", "success")
+    except sqlite3.IntegrityError:
+        flash("You are already following this user.", "info")
+
+
+    # Redirect back to the page the user came from
+    return redirect(request.referrer or url_for('feed'))
+
 @app.route('/admin')
 def admin_dashboard():
     """Displays the admin dashboard with users, posts, and comments, sorted by risk."""
@@ -1184,6 +1237,9 @@ def moderate_content(content):
 
     return moderated_content, score
 
+
+
+    # return topics
 
 if __name__ == '__main__':
     app.run(debug=True, port=8080)

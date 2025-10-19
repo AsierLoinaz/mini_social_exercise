@@ -29,6 +29,11 @@
                   <button type="submit" class="btn btn-primary">Follow</button>
                 </form>
               {% endif %}
+             <!-- Report Button triggers modal -->
+            <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#reportModal">
+              Report
+            </button>
+              
             </div>
           {% endif %}
 
@@ -95,5 +100,30 @@
     {% endfor %}
   </div>
 
+</div>
+
+<!-- Report User Modal -->
+<div class="modal fade" id="reportModal" tabindex="-1" aria-labelledby="reportModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form action="{{ url_for('report_profile', user_id=user.id) }}" method="POST">
+        <div class="modal-header">
+          <h5 class="modal-title" id="reportModalLabel">Report {{ user.username }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="reason" class="form-label">Reason for report</label>
+            <textarea class="form-control" id="reason" name="reason" rows="4" required
+                      placeholder="Describe why you are reporting this user..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger">Submit Report</button>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
 {% endblock %}
