@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, g
+from flask import Flask, render_template, request, redirect, url_for, session, flash, g, abort
 from werkzeug.security import generate_password_hash, check_password_hash
 from cryptography.fernet import Fernet
 import collections
@@ -399,7 +399,6 @@ def post_detail(post_id):
     for comment_raw in comments_raw:
         comment = dict(comment_raw) # Convert to a dictionary
         # Moderate the content of each comment
-        print(comment['content'])
         moderated_comment_content, _ = moderate_content(comment['content'])
         comment['content'] = moderated_comment_content
         comments.append(comment)
@@ -1093,14 +1092,15 @@ def admin_delete_reported_content(report_id):
     
     content_type = report['content_type']
     content_id = report['content_id']
-    if content_type == 'user':
+    if content_type == 'profile':
+        print({content_id})
         db.execute('DELETE FROM users WHERE id = ?', (content_id,))
         db.commit()
-        flash(f'Comment {content_id} has been deleted as suggested by report {report_id}.', 'success')
+        flash(f'User {content_id} has been deleted as suggested by report {report_id}.', 'success')
     elif content_type == 'post':
         db.execute('DELETE FROM posts WHERE id = ?', (content_id,))
         db.commit()
-        flash(f'Comment {content_id} has been deleted as suggested by report {report_id}.', 'success')
+        flash(f'Post {content_id} has been deleted as suggested by report {report_id}.', 'success')
     elif content_type == 'comment':
         db.execute('DELETE FROM comments WHERE id = ?', (content_id,))
         db.commit()
